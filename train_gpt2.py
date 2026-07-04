@@ -311,9 +311,10 @@ if torch.cuda.is_available():
 enc = tiktoken.get_encoding("gpt2")
 
 # per-device config: full run on GPU, small/fast run locally (MacBook MPS/CPU)
+# on GPU, B/T/steps are overridable via env vars (GPT_B, GPT_T, GPT_STEPS) for sweeps
 if device_type == "cuda":
-    B = 16   # micro batch size
-    T = 1024 # sequence length
+    B = int(os.environ.get("GPT_B", 16))   # micro batch size
+    T = int(os.environ.get("GPT_T", 1024)) # sequence length
 else:
     B = 4    # micro batch size
     T = 64   # sequence length
@@ -332,7 +333,7 @@ model = torch.compile(model)
 max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
-max_steps = 1000 if device_type == "cuda" else 100 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
+max_steps = int(os.environ.get("GPT_STEPS", 1000)) if device_type == "cuda" else 100 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
 
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
