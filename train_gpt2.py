@@ -226,6 +226,9 @@ class DataLoaderLite:
 
         # get the shard filenames
         data_root = "/mnt/data/edu_fineweb10B"
+        fallback_root = "/Users/claude/learning/apex/edu_fineweb10B"
+        if not os.path.isdir(data_root):
+            data_root = fallback_root
         shards = os.listdir(data_root)
         shards = [s for s in shards if split in s]
         shards = sorted(shards)
@@ -337,6 +340,7 @@ def get_lr(it):
 # optimize!
 optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=max_lr, device_type=device_type)
 
+
 # create the log directory we will write checkpoints to and log to
 log_dir = "log"
 os.makedirs(log_dir, exist_ok=True)
@@ -344,24 +348,67 @@ log_file = os.path.join(log_dir, f"log.txt")
 with open(log_file, "w") as f: # open for writing to clear the file
     pass
 
+def estimate_val_loss(model, val_loader, device, val_loss_steps=20):
+    # average the loss over several val batches for a stable estimate
+    model.eval()
+    val_loader.reset()
+    with torch.no_grad():
+        val_loss_accum = 0.0
+        for _ in range(val_loss_steps):
+            x, y = val_loader.next_batch()
+            x, y = x.to(device), y.to(device)
+            logits, loss = model(x, y)
+            val_loss_accum += loss.detach() / val_loss_steps
+    model.train()
+    return val_loss_accum
+
 for step in range(max_steps):
-    t0 = time.time()
     last_step = (step == max_steps - 1)
 
-    
+    # once in a while evaluate the validation loss (often early, less often later)
+    val_every = 20 if step < 1000 else 100
+    if step % val_every == 0 or last_step:
+        val_loss_accum = estimate_val_loss(model, val_loader, device)
+        if master_process:
+            print(f"step {step:5d} | validation loss: {val_loss_accum.item():.4f}")
+            with open(log_file, "a") as f:
+                f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+
+    t0 = time.time()
+
     # TODO: Implement the training step
-    
-    
+    optimizer.zero_grad()
+
+    # Load data
+    x, y = train_loader.next_batch() 
+    x, y = x.to(device), y.to(device)
+
+    # Forward
+    logits, loss = model(x, y)
+
+    # Backwards:
+    loss.backward()
+
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    optimizer.step()
+
     if device_type == "cuda":
         torch.cuda.synchronize() # wait for the GPU to finish work
-
+    
     # Print loss and token throughput
     t1 = time.time()
     dt = t1 - t0 # time difference in seconds
     tokens_processed = train_loader.B * train_loader.T * ddp_world_size
     tokens_per_sec = tokens_processed / dt
     if master_process:
-        print(f"step {step:5d} | loss: {loss.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
+        print_every = max(1, max_steps // 10) # print every 10% of steps
+        if step % print_every == 0 or last_step:
+            print(f"step {step:5d} | loss: {loss.item():.6f} | lr {lr:.4e} | norm: {norm:.4f} | dt: {dt*1000:.2f}ms | tok/sec: {tokens_per_sec:.2f}")
         with open(log_file, "a") as f:
             f.write(f"{step} train {loss.item():.6f}\n")
 
