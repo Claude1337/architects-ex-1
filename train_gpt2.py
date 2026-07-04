@@ -307,8 +307,13 @@ if torch.cuda.is_available():
 
 enc = tiktoken.get_encoding("gpt2")
 
-B = 4 # micro batch size
-T = 64 # sequence length
+# per-device config: full run on GPU, small/fast run locally (MacBook MPS/CPU)
+if device_type == "cuda":
+    B = 16   # micro batch size
+    T = 1024 # sequence length
+else:
+    B = 4    # micro batch size
+    T = 64   # sequence length
 
 train_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
 val_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val")
@@ -319,10 +324,12 @@ torch.set_float32_matmul_precision('high')
 model = GPT(GPTConfig(vocab_size=50304))
 # model = GPT.from_pretrained("gpt2") # or init from OpenAI GPT-2
 model.to(device)
+model = torch.compile(model)
+
 max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
-max_steps = 100 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
+max_steps = 1000 if device_type == "cuda" else 100 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
 
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
@@ -384,7 +391,9 @@ for step in range(max_steps):
     x, y = x.to(device), y.to(device)
 
     # Forward
-    logits, loss = model(x, y)
+    use_bf16 = device == "cuda"   # measured: bf16 autocast is slower on mps, so cuda-only
+    with torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=use_bf16):
+        logits, loss = model(x, y)
 
     # Backwards:
     loss.backward()
