@@ -416,8 +416,8 @@ for step in range(max_steps):
         model.require_backward_grad_sync = (i == grad_accum_steps - 1)
 
         # Forward
-        use_bf16 = device == "cuda"   # measured: bf16 autocast is slower on mps, so cuda-only
-        with torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=use_bf16):
+        use_bf16 = device_type == "cuda"   # measured: bf16 autocast is slower on mps, so cuda-only
+        with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=use_bf16):
             logits, loss = model(x, y)
 
         loss = loss / grad_accum_steps 
