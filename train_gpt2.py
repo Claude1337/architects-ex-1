@@ -441,7 +441,7 @@ for step in range(max_steps):
     # Print loss and token throughput
     t1 = time.time()
     dt = t1 - t0 # time difference in seconds
-    tokens_processed = train_loader.B * train_loader.T * ddp_world_size
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
     tokens_per_sec = tokens_processed / dt
     if master_process:
         print_every = max(1, max_steps // 10) # print every 10% of steps

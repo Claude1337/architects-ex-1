@@ -1,0 +1,6 @@
+# secrets — never commit HF_TOKEN etc.
+.env
+
+# training artifacts
+log/
+__pycache__/
