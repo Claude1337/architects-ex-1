@@ -368,6 +368,9 @@ if master_process:
     with open(log_file, "w") as f: # open for writing to clear the file
         pass
 
+# where model checkpoints are saved on the persistent /mnt/models volume before HF upload
+checkpoint_dir = os.environ.get("CHECKPOINT_DIR", "/mnt/models/claude")
+
 def estimate_val_loss(model, val_loader, device, val_loss_steps=20):
     # average the loss over several val batches for a stable estimate
     model.eval()
@@ -393,6 +396,10 @@ for step in range(max_steps):
             print(f"step {step:5d} | validation loss: {val_loss_accum.item():.4f}")
             with open(log_file, "a") as f:
                 f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+            # save + upload a checkpoint at steps 1000, 2000, ... and on the final step
+            if (step > 0 and step % 1000 == 0) or last_step:
+                from hf_checkpoint import save_and_upload_checkpoint
+                save_and_upload_checkpoint(raw_model, step, val_loss_accum.item(), checkpoint_dir)
 
     t0 = time.time()
 
