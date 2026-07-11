@@ -405,19 +405,25 @@ for step in range(max_steps):
 
     # TODO: Implement the training step
     optimizer.zero_grad()
+    loss_accum = 0.0
 
-    # Load data
-    x, y = train_loader.next_batch() 
-    x, y = x.to(device), y.to(device)
+    for i in range(grad_accum_steps):
 
-    # Forward
-    use_bf16 = device == "cuda"   # measured: bf16 autocast is slower on mps, so cuda-only
-    with torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=use_bf16):
-        logits, loss = model(x, y)
+        # Load data
+        x, y = train_loader.next_batch() 
+        x, y = x.to(device), y.to(device)
 
-    # Backwards:
-    loss.backward()
-    loss_accum = loss.detach()
+        model.require_backward_grad_sync = (i == grad_accum_steps - 1)
+
+        # Forward
+        use_bf16 = device == "cuda"   # measured: bf16 autocast is slower on mps, so cuda-only
+        with torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=use_bf16):
+            logits, loss = model(x, y)
+
+        loss = loss / grad_accum_steps 
+        # Backwards:
+        loss.backward()
+        loss_accum += loss.detach()
     if ddp:
         dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
 
