@@ -313,12 +313,15 @@ enc = tiktoken.get_encoding("gpt2")
 # per-device config: full run on GPU, small/fast run locally (MacBook MPS/CPU)
 # on GPU, B/T/steps are overridable via env vars (GPT_B, GPT_T, GPT_STEPS) for sweeps
 if device_type == "cuda":
+    total_batch_size = 524288
     B = int(os.environ.get("GPT_B", 16))   # micro batch size
     T = int(os.environ.get("GPT_T", 1024)) # sequence length
 else:
     B = 4    # micro batch size
     T = 64   # sequence length
+    total_batch_size = B * T
 
+grad_accum_steps = total_batch_size // ( B * T)
 train_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
 val_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val")
 
